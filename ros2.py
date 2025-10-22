@@ -222,9 +222,15 @@ def pub_robo_data_ros2(robot_type, num_envs, base_node, env, annotator_lst):
 
 
 class RobotBaseNode(Node):
-    def __init__(self, num_envs):
+    def __init__(self, num_envs, robot_namespaces=None):
         super().__init__("go2_driver_node")
         qos_profile = QoSProfile(depth=10)
+
+        # Generate namespaces
+        if robot_namespaces is None or len(robot_namespaces) == 0:
+            self.namespaces = [f"robot{i}" for i in range(num_envs)]
+        else:
+            self.namespaces = robot_namespaces
 
         self.joint_pub = []
         self.go2_state_pub = []
@@ -234,26 +240,27 @@ class RobotBaseNode(Node):
         self.imu_pub = []
 
         for i in range(num_envs):
+            ns = self.namespaces[i]
             self.joint_pub.append(
-                self.create_publisher(JointState, f"robot{i}/joint_states", qos_profile)
+                self.create_publisher(JointState, f"{ns}/joint_states", qos_profile)
             )
             self.go2_state_pub.append(
-                self.create_publisher(Go2State, f"robot{i}/go2_states", qos_profile)
+                self.create_publisher(Go2State, f"{ns}/go2_states", qos_profile)
             )
             self.odom_pub.append(
-                self.create_publisher(Odometry, f"robot{i}/odom", qos_profile)
+                self.create_publisher(Odometry, f"{ns}/odom", qos_profile)
             )
             self.imu_pub.append(
-                self.create_publisher(Imu, f"robot{i}/imu", qos_profile)
+                self.create_publisher(Imu, f"{ns}/imu", qos_profile)
             )
             self.go2_lidar_L1_pub.append(
                 self.create_publisher(
-                    PointCloud2, f"robot{i}/point_cloud2_L1", qos_profile
+                    PointCloud2, f"{ns}/point_cloud2_L1", qos_profile
                 )
             )
             self.go2_lidar_extra_pub.append(
                 self.create_publisher(
-                    PointCloud2, f"robot{i}/point_cloud2_extra", qos_profile
+                    PointCloud2, f"{ns}/point_cloud2_extra", qos_profile
                 )
             )
         self.broadcaster = TransformBroadcaster(self, qos=qos_profile)
@@ -265,7 +272,7 @@ class RobotBaseNode(Node):
 
         joint_state_names_formated = []
         for joint_name in joint_names_lst:
-            joint_state_names_formated.append(f"robot{robot_num}/" + joint_name)
+            joint_state_names_formated.append(f"{self.namespaces[robot_num]}/" + joint_name)
 
         joint_state_formated = []
         for joint_state_val in joint_state_lst:
@@ -277,11 +284,12 @@ class RobotBaseNode(Node):
 
     def publish_odom(self, base_pos, base_rot, robot_num):
         now = self.get_clock().now().to_msg()
+        ns = self.namespaces[robot_num]
 
         odom_trans = TransformStamped()
         odom_trans.header.stamp = now
         odom_trans.header.frame_id = "odom"
-        odom_trans.child_frame_id = f"robot{robot_num}/base_link"
+        odom_trans.child_frame_id = f"{ns}/base_link"
         odom_trans.transform.translation.x = base_pos[0].item()
         odom_trans.transform.translation.y = base_pos[1].item()
         odom_trans.transform.translation.z = base_pos[2].item()
@@ -293,16 +301,16 @@ class RobotBaseNode(Node):
 
         UnitreeL1_trans = TransformStamped()
         UnitreeL1_trans.header.stamp = now
-        UnitreeL1_trans.header.frame_id = f"robot{robot_num}/base_link"
-        UnitreeL1_trans.child_frame_id = f"robot{robot_num}/UnitreeL1_link"
+        UnitreeL1_trans.header.frame_id = f"{ns}/base_link"
+        UnitreeL1_trans.child_frame_id = f"{ns}/UnitreeL1_link"
         UnitreeL1_trans.transform.translation = Vector3(x=UnitreeL1_translation[0], y=UnitreeL1_translation[1], z=UnitreeL1_translation[2])
         UnitreeL1_trans.transform.rotation = Quaternion(x=UnitreeL1_quat[0], y=UnitreeL1_quat[1], z=UnitreeL1_quat[2], w=UnitreeL1_quat[3])
         self.broadcaster.sendTransform(UnitreeL1_trans)
 
         lidar_trans = TransformStamped()
         lidar_trans.header.stamp = now
-        lidar_trans.header.frame_id = f"robot{robot_num}/base_link"
-        lidar_trans.child_frame_id = f"robot{robot_num}/lidar_link"
+        lidar_trans.header.frame_id = f"{ns}/base_link"
+        lidar_trans.child_frame_id = f"{ns}/lidar_link"
         lidar_trans.transform.translation = Vector3(x=ExtraLidar_translation[0], y=ExtraLidar_translation[1], z=ExtraLidar_translation[2])
         lidar_trans.transform.rotation = Quaternion(x=ExtraLidar_quat[0], y=ExtraLidar_quat[1], z=ExtraLidar_quat[2], w=ExtraLidar_quat[3])
         self.broadcaster.sendTransform(lidar_trans)
@@ -310,7 +318,7 @@ class RobotBaseNode(Node):
         odom_topic = Odometry()
         odom_topic.header.stamp = now
         odom_topic.header.frame_id = "odom"
-        odom_topic.child_frame_id = f"robot{robot_num}/base_link"
+        odom_topic.child_frame_id = f"{ns}/base_link"
         odom_topic.pose.pose.position.x = base_pos[0].item()
         odom_topic.pose.pose.position.y = base_pos[1].item()
         odom_topic.pose.pose.position.z = base_pos[2].item()
@@ -323,7 +331,7 @@ class RobotBaseNode(Node):
     def publish_imu(self, base_rot, base_lin_vel, base_ang_vel, robot_num):
         imu_trans = Imu()
         imu_trans.header.stamp = self.get_clock().now().to_msg()
-        imu_trans.header.frame_id = f"robot{robot_num}/base_link"
+        imu_trans.header.frame_id = f"{self.namespaces[robot_num]}/base_link"
 
         imu_trans.linear_acceleration.x = base_lin_vel[0].item()
         imu_trans.linear_acceleration.y = base_lin_vel[1].item()
@@ -356,10 +364,10 @@ class RobotBaseNode(Node):
 
         point_cloud = PointCloud2()
         if data["type"] == "UnitreeL1":
-            point_cloud.header = Header(frame_id=f"robot{robot_num}/UnitreeL1_link")
+            point_cloud.header = Header(frame_id=f"{self.namespaces[robot_num]}/UnitreeL1_link")
             publisher = self.go2_lidar_L1_pub[robot_num]
         elif data["type"] == "Extra":
-            point_cloud.header = Header(frame_id=f"robot{robot_num}/lidar_link")
+            point_cloud.header = Header(frame_id=f"{self.namespaces[robot_num]}/lidar_link")
             publisher = self.go2_lidar_extra_pub[robot_num]
 
         point_cloud.header.stamp = self.get_clock().now().to_msg()
