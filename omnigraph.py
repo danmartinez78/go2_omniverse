@@ -26,8 +26,12 @@ import omni
 import omni.graph.core as og
 
 
-def create_front_cam_omnigraph(robot_num):
+def create_front_cam_omnigraph(robot_num, namespace=None):
     """Define the OmniGraph for the Isaac Sim environment."""
+
+    # Use default namespace if not provided
+    if namespace is None:
+        namespace = f"robot{robot_num}"
 
     keys = og.Controller.Keys
 
@@ -56,9 +60,9 @@ def create_front_cam_omnigraph(robot_num):
                 ("ROS2CameraHelper.inputs:type", "rgb"),
                 (
                     "ROS2CameraHelper.inputs:topicName",
-                    f"robot{robot_num}/front_cam/rgb",
+                    f"{namespace}/front_cam/rgb",
                 ),
-                ("ROS2CameraHelper.inputs:frameId", f"robot{robot_num}"),
+                ("ROS2CameraHelper.inputs:frameId", f"{namespace}"),
             ],
             keys.CONNECT: [
                 (

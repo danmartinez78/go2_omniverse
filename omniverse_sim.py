@@ -66,6 +66,14 @@ parser.add_argument("--robot", type=str, default="go2", help="Setup the robot")
 parser.add_argument(
     "--robot_amount", type=int, default=1, help="Setup the robot amount"
 )
+parser.add_argument(
+    "--robot_namespace",
+    type=str,
+    default="",
+    help="Custom robot namespace (e.g., 'tachi', 'ghost'). "
+         "If empty, uses 'robot0', 'robot1', etc. for multi-robot. "
+         "For multi-robot with custom names, use comma-separated list."
+)
 
 
 # append RSL-RL cli arguments
@@ -235,11 +243,16 @@ def cmd_vel_cb(msg, num_robot):
     custom_rl_env.base_command[str(num_robot)] = [x, y, z]
 
 
-def add_cmd_sub(num_envs):
+def add_cmd_sub(num_envs, robot_namespaces=None):
     node_test = rclpy.create_node("position_velocity_publisher")
+    # Generate namespaces if not provided
+    if robot_namespaces is None or len(robot_namespaces) == 0:
+        namespaces = [f"robot{i}" for i in range(num_envs)]
+    else:
+        namespaces = robot_namespaces
     for i in range(num_envs):
         node_test.create_subscription(
-            Twist, f"robot{i}/cmd_vel", lambda msg, i=i: cmd_vel_cb(msg, str(i)), 10
+            Twist, f"{namespaces[i]}/cmd_vel", lambda msg, i=i: cmd_vel_cb(msg, str(i)), 10
         )
     # Spin in a separate thread
     thread = threading.Thread(target=rclpy.spin, args=(node_test,), daemon=True)
@@ -313,10 +326,24 @@ def run_sim():
     # reset environment
     obs, _ = env.get_observations()
 
+    # Parse robot namespaces
+    robot_namespaces = None
+    if args_cli.robot_namespace:
+        # Split by comma for multi-robot support
+        robot_namespaces = [ns.strip() for ns in args_cli.robot_namespace.split(',')]
+        # Validate namespace count matches num_envs
+        if len(robot_namespaces) != env_cfg.scene.num_envs:
+            if len(robot_namespaces) == 1 and env_cfg.scene.num_envs == 1:
+                # Single robot with single namespace - OK
+                pass
+            else:
+                print(f"[WARNING]: Number of namespaces ({len(robot_namespaces)}) does not match number of environments ({env_cfg.scene.num_envs}). Using default namespaces.")
+                robot_namespaces = None
+
     # initialize ROS2 node
     rclpy.init()
-    base_node = RobotBaseNode(env_cfg.scene.num_envs)
-    add_cmd_sub(env_cfg.scene.num_envs)
+    base_node = RobotBaseNode(env_cfg.scene.num_envs, robot_namespaces=robot_namespaces)
+    add_cmd_sub(env_cfg.scene.num_envs, robot_namespaces=robot_namespaces)
 
     UnitreeL1_annotator_lst = add_rtx_lidar(env_cfg.scene.num_envs, args_cli.robot, "UnitreeL1", False)
     ExtraLidar_annotator_lst = add_rtx_lidar(env_cfg.scene.num_envs, args_cli.robot, "Extra", False)
@@ -326,7 +353,8 @@ def run_sim():
 
     # create ros2 camera stream omnigraph
     for i in range(env_cfg.scene.num_envs):
-        create_front_cam_omnigraph(i)
+        namespace = robot_namespaces[i] if robot_namespaces else None
+        create_front_cam_omnigraph(i, namespace=namespace)
 
     setup_custom_env()
 
