@@ -288,7 +288,7 @@ class RobotBaseNode(Node):
 
         odom_trans = TransformStamped()
         odom_trans.header.stamp = now
-        odom_trans.header.frame_id = "odom"
+        odom_trans.header.frame_id = f"{ns}/odom"
         odom_trans.child_frame_id = f"{ns}/base_link"
         odom_trans.transform.translation.x = base_pos[0].item()
         odom_trans.transform.translation.y = base_pos[1].item()
@@ -317,7 +317,7 @@ class RobotBaseNode(Node):
 
         odom_topic = Odometry()
         odom_topic.header.stamp = now
-        odom_topic.header.frame_id = "odom"
+        odom_topic.header.frame_id = f"{ns}/odom"
         odom_topic.child_frame_id = f"{ns}/base_link"
         odom_topic.pose.pose.position.x = base_pos[0].item()
         odom_topic.pose.pose.position.y = base_pos[1].item()
