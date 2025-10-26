@@ -250,7 +250,6 @@ def add_cmd_sub(num_envs, robot_namespaces=None):
         namespaces = [f"robot{i}" for i in range(num_envs)]
     else:
         namespaces = robot_namespaces
-    
     for i in range(num_envs):
         node_test.create_subscription(
             Twist, f"{namespaces[i]}/cmd_vel", lambda msg, i=i: cmd_vel_cb(msg, str(i)), 10
