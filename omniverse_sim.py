@@ -74,6 +74,15 @@ parser.add_argument(
          "If empty, uses 'robot0', 'robot1', etc. for multi-robot. "
          "For multi-robot with custom names, use comma-separated list."
 )
+parser.add_argument(
+    "--tf_namespace",
+    type=str,
+    default="",
+    help="TF topic namespace for multi-robot isolation. "
+         "If empty, publishes to global /tf (default). "
+         "If set, publishes to /<tf_namespace>/tf. "
+         "For multi-robot, use comma-separated list matching robot_namespace."
+)
 
 
 # append RSL-RL cli arguments
@@ -340,9 +349,23 @@ def run_sim():
                 print(f"[WARNING]: Number of namespaces ({len(robot_namespaces)}) does not match number of environments ({env_cfg.scene.num_envs}). Using default namespaces.")
                 robot_namespaces = None
 
+    # Parse TF namespaces
+    tf_namespaces = None
+    if args_cli.tf_namespace:
+        # Split by comma for multi-robot support
+        tf_namespaces = [ns.strip() for ns in args_cli.tf_namespace.split(',')]
+        # Validate TF namespace count matches num_envs
+        if len(tf_namespaces) != env_cfg.scene.num_envs:
+            if len(tf_namespaces) == 1 and env_cfg.scene.num_envs == 1:
+                # Single robot with single TF namespace - OK
+                pass
+            else:
+                print(f"[WARNING]: Number of TF namespaces ({len(tf_namespaces)}) does not match number of environments ({env_cfg.scene.num_envs}). Using default global /tf.")
+                tf_namespaces = None
+
     # initialize ROS2 node
     rclpy.init()
-    base_node = RobotBaseNode(env_cfg.scene.num_envs, robot_namespaces=robot_namespaces)
+    base_node = RobotBaseNode(env_cfg.scene.num_envs, robot_namespaces=robot_namespaces, tf_namespaces=tf_namespaces)
     add_cmd_sub(env_cfg.scene.num_envs, robot_namespaces=robot_namespaces)
 
     UnitreeL1_annotator_lst = add_rtx_lidar(env_cfg.scene.num_envs, args_cli.robot, "UnitreeL1", False)

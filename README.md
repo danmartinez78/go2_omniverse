@@ -160,6 +160,35 @@ To start the project with Unitree G1, execute:
 
 You can control the dog using "WASD" keyboard commands
 
+### Multi-Robot TF Namespace Support
+
+For multi-robot setups requiring isolated TF transforms, you can use the `--tf_namespace` argument to publish transforms on per-robot namespaced topics:
+
+**Single robot with namespaced TF:**
+```bash
+python main.py --robot_amount 1 --tf_namespace robot0
+```
+This publishes TF to `/robot0/tf` with unprefixed frame IDs (`odom`, `base_link`).
+
+**Multiple robots with individual TF namespaces:**
+```bash
+python main.py --robot_amount 2 --tf_namespace robot0,robot1
+```
+Each robot publishes to its own TF topic (`/robot0/tf`, `/robot1/tf`) with unprefixed frames.
+
+**Benefits:**
+- Clean multi-robot isolation without TF frame collisions
+- Compatible with Nav2 fully namespaced pattern (standard ROS2 multi-robot approach)
+- Uses unprefixed frame IDs when namespaced (e.g., `base_link`, `odom`) - namespace provides isolation
+- Eliminates need for frame prefix hacks and parameter rewrites
+- Backward compatible: omitting `--tf_namespace` uses global `/tf` (default behavior)
+
+**Frame ID Behavior:**
+- **With `--tf_namespace`**: Unprefixed frames (e.g., `odom → base_link`) published to `/robot0/tf`
+- **Without `--tf_namespace`**: Prefixed frames (e.g., `robot0/odom → robot0/base_link`) published to `/tf`
+
+This follows ROS2 best practices where namespace isolation eliminates the need for frame prefixes.
+
 ## ROS2 SDK
 
 You can use https://github.com/abizovnuralem/go2_ros2_sdk as a basement for your ROS2 setup.

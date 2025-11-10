@@ -29,6 +29,7 @@ from rclpy.qos import QoSProfile
 from sensor_msgs.msg import JointState
 from geometry_msgs.msg import TransformStamped, Vector3, Quaternion
 from tf2_ros import TransformBroadcaster
+from tf2_msgs.msg import TFMessage
 from go2_interfaces.msg import Go2State
 from std_msgs.msg import Header
 
@@ -222,7 +223,7 @@ def pub_robo_data_ros2(robot_type, num_envs, base_node, env, annotator_lst):
 
 
 class RobotBaseNode(Node):
-    def __init__(self, num_envs, robot_namespaces=None):
+    def __init__(self, num_envs, robot_namespaces=None, tf_namespaces=None):
         super().__init__("go2_driver_node")
         qos_profile = QoSProfile(depth=10)
 
@@ -232,12 +233,22 @@ class RobotBaseNode(Node):
         else:
             self.namespaces = robot_namespaces
 
+        # Generate TF namespaces
+        if tf_namespaces is None or len(tf_namespaces) == 0:
+            # Empty list means use global /tf (backward compatibility)
+            self.tf_namespaces = [""] * num_envs
+        elif len(tf_namespaces) != num_envs:
+            raise ValueError(f"Number of TF namespaces ({len(tf_namespaces)}) must match num_envs ({num_envs})")
+        else:
+            self.tf_namespaces = tf_namespaces
+
         self.joint_pub = []
         self.go2_state_pub = []
         self.go2_lidar_L1_pub = []
         self.go2_lidar_extra_pub = []
         self.odom_pub = []
         self.imu_pub = []
+        self.tf_publishers = []
 
         for i in range(num_envs):
             ns = self.namespaces[i]
@@ -263,7 +274,44 @@ class RobotBaseNode(Node):
                     PointCloud2, f"{ns}/point_cloud2_extra", qos_profile
                 )
             )
+            
+            # Create per-robot TF publisher
+            # If tf_namespace is empty, it will publish to global /tf
+            # Otherwise, it publishes to /<tf_namespace>/tf
+            tf_ns = self.tf_namespaces[i]
+            if tf_ns:
+                # Create a namespaced TF publisher
+                tf_topic = f"{tf_ns}/tf"
+                tf_pub = self.create_publisher(TFMessage, tf_topic, qos_profile)
+            else:
+                # Use None to indicate we should use the default broadcaster
+                tf_pub = None
+            
+            self.tf_publishers.append(tf_pub)
+        
+        # Keep single broadcaster for backward compatibility (when tf_namespace is empty)
         self.broadcaster = TransformBroadcaster(self, qos=qos_profile)
+
+    def _get_frame_id(self, frame_name, robot_num):
+        """Get the appropriate frame ID based on tf_namespace configuration.
+        
+        When using namespaced TF topics, frame IDs are unprefixed (e.g., 'base_link')
+        because the namespace provides isolation. When using global /tf, frame IDs 
+        are prefixed (e.g., 'robot0/base_link') to avoid collisions.
+        
+        Args:
+            frame_name: Base frame name (e.g., 'base_link', 'odom', 'map')
+            robot_num: Robot index
+            
+        Returns:
+            Formatted frame ID string
+        """
+        if self.tf_namespaces[robot_num]:
+            # Using namespaced TF topic - use unprefixed frames
+            return frame_name
+        else:
+            # Using global /tf - prefix frames to avoid collisions
+            return f"{self.namespaces[robot_num]}/{frame_name}"
 
     def publish_joints(self, joint_names_lst, joint_state_lst, robot_num):
         # Create message
@@ -282,14 +330,52 @@ class RobotBaseNode(Node):
         joint_state.position = joint_state_formated
         self.joint_pub[robot_num].publish(joint_state)
 
+    def _send_transform(self, transform, robot_num):
+        """Send a transform using the appropriate method based on tf_namespace configuration.
+        
+        Args:
+            transform: TransformStamped message to publish
+            robot_num: Robot index
+        """
+        tf_pub = self.tf_publishers[robot_num]
+        if tf_pub is not None:
+            # Use custom namespaced TF publisher
+            tf_msg = TFMessage()
+            tf_msg.transforms = [transform]
+            tf_pub.publish(tf_msg)
+        else:
+            # Use default global TF broadcaster for backward compatibility
+            self.broadcaster.sendTransform(transform)
+
+    def _send_transforms(self, transforms, robot_num):
+        """Send multiple transforms using the appropriate method based on tf_namespace configuration.
+        
+        Args:
+            transforms: List of TransformStamped messages to publish
+            robot_num: Robot index
+        """
+        tf_pub = self.tf_publishers[robot_num]
+        if tf_pub is not None:
+            # Use custom namespaced TF publisher
+            tf_msg = TFMessage()
+            tf_msg.transforms = transforms
+            tf_pub.publish(tf_msg)
+        else:
+            # Use default global TF broadcaster for backward compatibility
+            for transform in transforms:
+                self.broadcaster.sendTransform(transform)
+
     def publish_odom(self, base_pos, base_rot, robot_num):
         now = self.get_clock().now().to_msg()
         ns = self.namespaces[robot_num]
 
+        # Create all transforms
+        transforms = []
+
         odom_trans = TransformStamped()
         odom_trans.header.stamp = now
-        odom_trans.header.frame_id = f"{ns}/odom"
-        odom_trans.child_frame_id = f"{ns}/base_link"
+        odom_trans.header.frame_id = self._get_frame_id("odom", robot_num)
+        odom_trans.child_frame_id = self._get_frame_id("base_link", robot_num)
         odom_trans.transform.translation.x = base_pos[0].item()
         odom_trans.transform.translation.y = base_pos[1].item()
         odom_trans.transform.translation.z = base_pos[2].item()
@@ -297,28 +383,31 @@ class RobotBaseNode(Node):
         odom_trans.transform.rotation.y = base_rot[2].item()
         odom_trans.transform.rotation.z = base_rot[3].item()
         odom_trans.transform.rotation.w = base_rot[0].item()
-        self.broadcaster.sendTransform(odom_trans)
+        transforms.append(odom_trans)
 
         UnitreeL1_trans = TransformStamped()
         UnitreeL1_trans.header.stamp = now
-        UnitreeL1_trans.header.frame_id = f"{ns}/base_link"
-        UnitreeL1_trans.child_frame_id = f"{ns}/UnitreeL1_link"
+        UnitreeL1_trans.header.frame_id = self._get_frame_id("base_link", robot_num)
+        UnitreeL1_trans.child_frame_id = self._get_frame_id("UnitreeL1_link", robot_num)
         UnitreeL1_trans.transform.translation = Vector3(x=UnitreeL1_translation[0], y=UnitreeL1_translation[1], z=UnitreeL1_translation[2])
         UnitreeL1_trans.transform.rotation = Quaternion(x=UnitreeL1_quat[0], y=UnitreeL1_quat[1], z=UnitreeL1_quat[2], w=UnitreeL1_quat[3])
-        self.broadcaster.sendTransform(UnitreeL1_trans)
+        transforms.append(UnitreeL1_trans)
 
         lidar_trans = TransformStamped()
         lidar_trans.header.stamp = now
-        lidar_trans.header.frame_id = f"{ns}/base_link"
-        lidar_trans.child_frame_id = f"{ns}/lidar_link"
+        lidar_trans.header.frame_id = self._get_frame_id("base_link", robot_num)
+        lidar_trans.child_frame_id = self._get_frame_id("lidar_link", robot_num)
         lidar_trans.transform.translation = Vector3(x=ExtraLidar_translation[0], y=ExtraLidar_translation[1], z=ExtraLidar_translation[2])
         lidar_trans.transform.rotation = Quaternion(x=ExtraLidar_quat[0], y=ExtraLidar_quat[1], z=ExtraLidar_quat[2], w=ExtraLidar_quat[3])
-        self.broadcaster.sendTransform(lidar_trans)
+        transforms.append(lidar_trans)
+
+        # Send all transforms together
+        self._send_transforms(transforms, robot_num)
 
         odom_topic = Odometry()
         odom_topic.header.stamp = now
-        odom_topic.header.frame_id = f"{ns}/odom"
-        odom_topic.child_frame_id = f"{ns}/base_link"
+        odom_topic.header.frame_id = self._get_frame_id("odom", robot_num)
+        odom_topic.child_frame_id = self._get_frame_id("base_link", robot_num)
         odom_topic.pose.pose.position.x = base_pos[0].item()
         odom_topic.pose.pose.position.y = base_pos[1].item()
         odom_topic.pose.pose.position.z = base_pos[2].item()
@@ -331,7 +420,7 @@ class RobotBaseNode(Node):
     def publish_imu(self, base_rot, base_lin_vel, base_ang_vel, robot_num):
         imu_trans = Imu()
         imu_trans.header.stamp = self.get_clock().now().to_msg()
-        imu_trans.header.frame_id = f"{self.namespaces[robot_num]}/base_link"
+        imu_trans.header.frame_id = self._get_frame_id("base_link", robot_num)
 
         imu_trans.linear_acceleration.x = base_lin_vel[0].item()
         imu_trans.linear_acceleration.y = base_lin_vel[1].item()
@@ -364,10 +453,10 @@ class RobotBaseNode(Node):
 
         point_cloud = PointCloud2()
         if data["type"] == "UnitreeL1":
-            point_cloud.header = Header(frame_id=f"{self.namespaces[robot_num]}/UnitreeL1_link")
+            point_cloud.header = Header(frame_id=self._get_frame_id("UnitreeL1_link", robot_num))
             publisher = self.go2_lidar_L1_pub[robot_num]
         elif data["type"] == "Extra":
-            point_cloud.header = Header(frame_id=f"{self.namespaces[robot_num]}/lidar_link")
+            point_cloud.header = Header(frame_id=self._get_frame_id("lidar_link", robot_num))
             publisher = self.go2_lidar_extra_pub[robot_num]
 
         point_cloud.header.stamp = self.get_clock().now().to_msg()
