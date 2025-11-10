@@ -168,21 +168,26 @@ For multi-robot setups requiring isolated TF transforms, you can use the `--tf_n
 ```bash
 python main.py --robot_amount 1 --tf_namespace robot0
 ```
-This publishes TF to `/robot0/tf` instead of global `/tf`.
+This publishes TF to `/robot0/tf` with unprefixed frame IDs (`odom`, `base_link`).
 
 **Multiple robots with individual TF namespaces:**
 ```bash
 python main.py --robot_amount 2 --tf_namespace robot0,robot1
 ```
-Each robot publishes to its own TF topic (`/robot0/tf`, `/robot1/tf`).
+Each robot publishes to its own TF topic (`/robot0/tf`, `/robot1/tf`) with unprefixed frames.
 
 **Benefits:**
 - Clean multi-robot isolation without TF frame collisions
-- Compatible with Nav2 fully namespaced pattern
-- Eliminates need for frame prefix hacks
+- Compatible with Nav2 fully namespaced pattern (standard ROS2 multi-robot approach)
+- Uses unprefixed frame IDs when namespaced (e.g., `base_link`, `odom`) - namespace provides isolation
+- Eliminates need for frame prefix hacks and parameter rewrites
 - Backward compatible: omitting `--tf_namespace` uses global `/tf` (default behavior)
 
-**Note:** Frame IDs (like `robot0/odom`, `robot0/base_link`) are always prefixed with the robot namespace for clarity, regardless of the TF topic used.
+**Frame ID Behavior:**
+- **With `--tf_namespace`**: Unprefixed frames (e.g., `odom → base_link`) published to `/robot0/tf`
+- **Without `--tf_namespace`**: Prefixed frames (e.g., `robot0/odom → robot0/base_link`) published to `/tf`
+
+This follows ROS2 best practices where namespace isolation eliminates the need for frame prefixes.
 
 ## ROS2 SDK
 

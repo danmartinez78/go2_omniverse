@@ -292,6 +292,27 @@ class RobotBaseNode(Node):
         # Keep single broadcaster for backward compatibility (when tf_namespace is empty)
         self.broadcaster = TransformBroadcaster(self, qos=qos_profile)
 
+    def _get_frame_id(self, frame_name, robot_num):
+        """Get the appropriate frame ID based on tf_namespace configuration.
+        
+        When using namespaced TF topics, frame IDs are unprefixed (e.g., 'base_link')
+        because the namespace provides isolation. When using global /tf, frame IDs 
+        are prefixed (e.g., 'robot0/base_link') to avoid collisions.
+        
+        Args:
+            frame_name: Base frame name (e.g., 'base_link', 'odom', 'map')
+            robot_num: Robot index
+            
+        Returns:
+            Formatted frame ID string
+        """
+        if self.tf_namespaces[robot_num]:
+            # Using namespaced TF topic - use unprefixed frames
+            return frame_name
+        else:
+            # Using global /tf - prefix frames to avoid collisions
+            return f"{self.namespaces[robot_num]}/{frame_name}"
+
     def publish_joints(self, joint_names_lst, joint_state_lst, robot_num):
         # Create message
         joint_state = JointState()
@@ -353,8 +374,8 @@ class RobotBaseNode(Node):
 
         odom_trans = TransformStamped()
         odom_trans.header.stamp = now
-        odom_trans.header.frame_id = f"{ns}/odom"
-        odom_trans.child_frame_id = f"{ns}/base_link"
+        odom_trans.header.frame_id = self._get_frame_id("odom", robot_num)
+        odom_trans.child_frame_id = self._get_frame_id("base_link", robot_num)
         odom_trans.transform.translation.x = base_pos[0].item()
         odom_trans.transform.translation.y = base_pos[1].item()
         odom_trans.transform.translation.z = base_pos[2].item()
@@ -366,16 +387,16 @@ class RobotBaseNode(Node):
 
         UnitreeL1_trans = TransformStamped()
         UnitreeL1_trans.header.stamp = now
-        UnitreeL1_trans.header.frame_id = f"{ns}/base_link"
-        UnitreeL1_trans.child_frame_id = f"{ns}/UnitreeL1_link"
+        UnitreeL1_trans.header.frame_id = self._get_frame_id("base_link", robot_num)
+        UnitreeL1_trans.child_frame_id = self._get_frame_id("UnitreeL1_link", robot_num)
         UnitreeL1_trans.transform.translation = Vector3(x=UnitreeL1_translation[0], y=UnitreeL1_translation[1], z=UnitreeL1_translation[2])
         UnitreeL1_trans.transform.rotation = Quaternion(x=UnitreeL1_quat[0], y=UnitreeL1_quat[1], z=UnitreeL1_quat[2], w=UnitreeL1_quat[3])
         transforms.append(UnitreeL1_trans)
 
         lidar_trans = TransformStamped()
         lidar_trans.header.stamp = now
-        lidar_trans.header.frame_id = f"{ns}/base_link"
-        lidar_trans.child_frame_id = f"{ns}/lidar_link"
+        lidar_trans.header.frame_id = self._get_frame_id("base_link", robot_num)
+        lidar_trans.child_frame_id = self._get_frame_id("lidar_link", robot_num)
         lidar_trans.transform.translation = Vector3(x=ExtraLidar_translation[0], y=ExtraLidar_translation[1], z=ExtraLidar_translation[2])
         lidar_trans.transform.rotation = Quaternion(x=ExtraLidar_quat[0], y=ExtraLidar_quat[1], z=ExtraLidar_quat[2], w=ExtraLidar_quat[3])
         transforms.append(lidar_trans)
@@ -385,8 +406,8 @@ class RobotBaseNode(Node):
 
         odom_topic = Odometry()
         odom_topic.header.stamp = now
-        odom_topic.header.frame_id = f"{ns}/odom"
-        odom_topic.child_frame_id = f"{ns}/base_link"
+        odom_topic.header.frame_id = self._get_frame_id("odom", robot_num)
+        odom_topic.child_frame_id = self._get_frame_id("base_link", robot_num)
         odom_topic.pose.pose.position.x = base_pos[0].item()
         odom_topic.pose.pose.position.y = base_pos[1].item()
         odom_topic.pose.pose.position.z = base_pos[2].item()
@@ -399,7 +420,7 @@ class RobotBaseNode(Node):
     def publish_imu(self, base_rot, base_lin_vel, base_ang_vel, robot_num):
         imu_trans = Imu()
         imu_trans.header.stamp = self.get_clock().now().to_msg()
-        imu_trans.header.frame_id = f"{self.namespaces[robot_num]}/base_link"
+        imu_trans.header.frame_id = self._get_frame_id("base_link", robot_num)
 
         imu_trans.linear_acceleration.x = base_lin_vel[0].item()
         imu_trans.linear_acceleration.y = base_lin_vel[1].item()
@@ -432,10 +453,10 @@ class RobotBaseNode(Node):
 
         point_cloud = PointCloud2()
         if data["type"] == "UnitreeL1":
-            point_cloud.header = Header(frame_id=f"{self.namespaces[robot_num]}/UnitreeL1_link")
+            point_cloud.header = Header(frame_id=self._get_frame_id("UnitreeL1_link", robot_num))
             publisher = self.go2_lidar_L1_pub[robot_num]
         elif data["type"] == "Extra":
-            point_cloud.header = Header(frame_id=f"{self.namespaces[robot_num]}/lidar_link")
+            point_cloud.header = Header(frame_id=self._get_frame_id("lidar_link", robot_num))
             publisher = self.go2_lidar_extra_pub[robot_num]
 
         point_cloud.header.stamp = self.get_clock().now().to_msg()
