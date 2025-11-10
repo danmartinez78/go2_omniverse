@@ -237,6 +237,8 @@ class RobotBaseNode(Node):
         if tf_namespaces is None or len(tf_namespaces) == 0:
             # Empty list means use global /tf (backward compatibility)
             self.tf_namespaces = [""] * num_envs
+        elif len(tf_namespaces) != num_envs:
+            raise ValueError(f"Number of TF namespaces ({len(tf_namespaces)}) must match num_envs ({num_envs})")
         else:
             self.tf_namespaces = tf_namespaces
 
