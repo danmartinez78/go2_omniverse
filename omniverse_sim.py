@@ -79,8 +79,8 @@ parser.add_argument(
     type=str,
     default="",
     help="TF topic namespace for multi-robot isolation. "
-         "If empty, publishes to global /tf and /tf_static (default). "
-         "If set, publishes to /<tf_namespace>/tf and /<tf_namespace>/tf_static. "
+         "If empty, publishes to global /tf (default). "
+         "If set, publishes to /<tf_namespace>/tf. "
          "For multi-robot, use comma-separated list matching robot_namespace."
 )
 
